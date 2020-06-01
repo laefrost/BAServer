@@ -6,4 +6,5 @@ class Relationship(db.Document):
     }
     questionId = db.IntField()
     topicId = db.IntField()
-    attributeId = db.IntField()
+    attributeId = db.StringField()
+    #parentAttrId = db.IntField()

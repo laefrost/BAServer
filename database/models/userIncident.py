@@ -16,3 +16,4 @@ class UserIncident(db.Document):
     technicalData= db.StringField()
     title= db.StringField()
     time = db.StringField()
+    staged = db.BooleanField()
