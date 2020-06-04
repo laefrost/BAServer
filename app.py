@@ -51,7 +51,7 @@ def post_incident():
     return Response(incident.to_json(), 200)
 
 
-@app.route('/incidents/<id>', methods=['DELETE'])
+@app.route('/incidents/<incident_id>', methods=['DELETE'])
 def delete_incident(incident_id):
     Incident.objects.get(id=incident_id).delete()
     return '', 200
@@ -98,7 +98,7 @@ def post_norm_ref_incident(incident):
     return Response(norm_incident.to_json(), 200)
 
 
-@app.route('/norm_incidents/<id>', methods=['DELETE'])
+@app.route('/norm_incidents/<incident_id>', methods=['DELETE'])
 def delete_norm_incident(incident_id):
     NormIncident.objects.get(id=incident_id).delete()
     return '', 200
@@ -136,7 +136,7 @@ def post_user_incident():
     return question_response
 
 
-@app.route('/user_incidents/<id>', methods=['DELETE'])
+@app.route('/user_incidents/<incident_id>', methods=['DELETE'])
 def delete_user_incident(incident_id):
     UserIncident.objects(myId=incident_id).delete()
     NormUserIncident.objects(refId=incident_id).delete()
@@ -216,6 +216,7 @@ def post_question():
 # toDo: shorten it
 @app.route('/relations', methods=['POST'])
 def post_relation(question_id, temp):
+    re = Relationship()
     for source in temp['sources']:
         t = source['source']
         if len(t) != 0:
