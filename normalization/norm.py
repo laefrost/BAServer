@@ -29,24 +29,39 @@ def generate_name_list(elements, result):
 
 
 # generates list/vector consisting of 0 and 1
+#def generate_vector_list(list, incident, topic, topic_singular):
+#    vector = {}
+#    for i in range(len(list)):
+#        if incident[topic] is not None and len(incident[topic]) > 0:
+#            for element in incident[topic]:
+#                element_list = element[topic_singular]
+#                if len(element_list) != 0:
+#                    id = element_list[-1]
+#                    if id == list[i]:
+#                        vector[i] = 1
+#                    else:
+#                        if vector.get(i) != 1:
+#                            vector[i] = 0
+#                else:
+#                    vector[i] = 0
+#        else:
+#            vector[i] = 0
+#    result = [*vector.values()]
+#    return result
+
+
 def generate_vector_list(list, incident, topic, topic_singular):
-    vector = {}
-    for i in range(len(list)):
-        if incident[topic] is not None and len(incident[topic]) > 0:
-            for element in incident[topic]:
-                element_list = element[topic_singular]
-                if len(element_list) != 0:
-                    id = element_list[-1]
-                    if id == list[i]:
-                        vector[i] = 1
-                    else:
-                        if vector.get(i) != 1:
-                            vector[i] = 0
-                else:
-                    vector[i] = 0
-        else:
-            vector[i] = 0
-    result = [*vector.values()]
+    result = [0] * len(list)
+    if incident[topic] is not None and len(incident[topic]) > 0:
+        for element in incident[topic]:
+            element_list = element[topic_singular]
+            if len(element_list) != 0:
+                id = element_list[-1]
+                result[list.index(id)] = 1
+                #das hier raus
+                while id[:-2]:
+                    id = id[:-2]
+                    result[list.index(id)] = 1
     return result
 
 
@@ -76,7 +91,10 @@ def reverse_norm_incident(norm_incident, sources, events, entities, impacts, use
 
 def reverse_attributes(names, ids, indices, reversed_list, keyword):
     list = []
+    indices = indices[::-1]
     print(indices)
+    indices = np.array(indices).tolist()
+
     for index in indices:
         attribute_list = []
         id = ids[index]
@@ -86,6 +104,8 @@ def reverse_attributes(names, ids, indices, reversed_list, keyword):
             index_new = ids.index(id[:-2])
             attribute_list.insert(0, names[index_new])
             id = id[:-2]
+            if index_new in indices:
+                indices.remove(index_new)
         attr_dict = {keyword: attribute_list}
         print(attr_dict)
         list.append(attr_dict)
@@ -94,6 +114,7 @@ def reverse_attributes(names, ids, indices, reversed_list, keyword):
 
 # generates normalized incident
 def normalize_incident(incident, sources, events, entities, impacts):
+    print("normalize incident")
     list_source = generate_id_list(json.loads(sources)[0], [])
     list_events = generate_id_list(json.loads(events)[0], [])
     list_entities = generate_id_list(json.loads(entities)[0], [])
@@ -104,4 +125,5 @@ def normalize_incident(incident, sources, events, entities, impacts):
             'normEvents': generate_vector_list(list_events, incident, 'events', 'event'),
             'normEntities': generate_vector_list(list_entities, incident, 'entities', 'entity'),
             'normImpacts': generate_vector_list(list_impacts, incident, 'impacts', 'impact')}
+    print(norm)
     return norm

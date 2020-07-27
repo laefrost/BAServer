@@ -3,8 +3,8 @@ from flask import Flask, request, Response, jsonify
 from flask_cors import CORS
 from calculations.calculate import calculate_cosine
 from normalization.norm import normalize_incident, generate_id_list, reverse_norm_incident
-from generation.questionGeneration import generate_question, get_attribute_name, generate_counter_question, \
-    generate_mc_question
+from generation.questionGeneration import generate_events_question, generate_impacts_question, \
+    generate_entities_question, generate_sources_question
 import json
 from flask_pymongo import PyMongo
 from bson.json_util import dumps, loads
@@ -39,6 +39,7 @@ def get_incidents():
 
 @app.route('/incidents', methods=['POST'])
 def post_incident():
+    print("post incident")
     body = request.get_json()
     incident = body
     idList = list(coll_i.find())
@@ -48,6 +49,7 @@ def post_incident():
         incident['myId'] = coll_i.find_one(sort=[('myId', pymongo.DESCENDING)])['myId'] + 1;
     incident['transmittedBy'] = 'admin'
     coll_i.insert_one(incident)
+    print(incident)
     post_norm_ref_incident(incident)
     return dumps(incident)
 
@@ -70,7 +72,10 @@ def post_StagedIncident():
         incident['myId'] = id + 1;
     coll_i.insert_one(incident)
     post_norm_ref_incident(incident)
-    delete_user_incident(body['myId'])
+    #delete_user_incident(body['myId'])
+    coll_ui.delete_one({'myId': body['myId']})
+    coll_nui.delete_one({'refId': body['myId']})
+
     return dumps(incident)
 
 
@@ -115,6 +120,7 @@ def get_user_incident(incident_id):
 
 @app.route('/user_incidents', methods=['POST'])
 def post_user_incident():
+    print("post user incident")
     body = request.get_json()
     user_incident = body
     idList = list(coll_ui.find())
@@ -126,20 +132,20 @@ def post_user_incident():
     events = get_events()
     entities = get_entities()
     impacts = get_impacts()
+    print(user_incident)
     norm_user_incident = post_norm_user_incident(user_incident, sources, events, entities, impacts)
     norm_ref_incidents = get_norm_ref_incidents()
     question_response = execute_completion(user_incident, sources, events, entities, impacts, norm_user_incident, norm_ref_incidents)
-    coll_ui.insert_one(user_incident)
     return question_response
 
 
-@app.route('/user_incidents/<incident_id>', methods=['DELETE'])
-def delete_user_incident(incident_id):
-    if incident_id is None:
-        incident_id = request.get()
-    coll_ui.delete_one({'myId': incident_id})
-    coll_nui.delete_one({'refId': incident_id})
-    return ''
+@app.route('/delete_ui', methods=['POST'])
+def delete_user_incident():
+    body = request.get_json()
+    coll_ui.delete_one({'myId': body['myId']})
+    coll_nui.delete_one({'refId': body['myId']})
+    return body
+
 
 # normalized user incident
 
@@ -240,119 +246,97 @@ def post_relation(question_id, temp):
 
 # get all questions that answer attribute
 def get_questions(ids, phase):
+    print("get questions")
+    sources = get_sources()
+    events = get_events()
+    entities = get_entities()
+    impacts = get_impacts()
     result = []
     copy_ids = set()
     for element in ids['sources']:
         if element not in copy_ids:
-            result.append(get({}, element, ids['sources'], 1, copy_ids, phase))
+            #if element not in copy_ids:
+            if element[:-2]:
+                parent_id = element[:-2]
+            else:
+                parent_id = None
+            result.append(create_question({}, element, ids['sources'],1, copy_ids, phase, parent_id, sources, events, entities, impacts))
     copy_ids = set()
     for element in ids['events']:
         if element not in copy_ids:
-            result.append(get({}, element, ids['events'], 2, copy_ids, phase))
+            if element[:-2]:
+                parent_id = element[:-2]
+            else:
+                parent_id = None
+            result.append(create_question({}, element, ids['events'],2, copy_ids, phase, parent_id, sources, events, entities, impacts))
     copy_ids = set()
     for element in ids['entities']:
         if element not in copy_ids:
-            result.append(get({}, element, ids['entities'], 3, copy_ids, phase))
+            result.append(create_question({}, element, ids['entities'],3, copy_ids, phase, None, sources, events, entities, impacts))
     copy_ids = set()
     for element in ids['impacts']:
         if element not in copy_ids:
-            result.append(get({}, element, ids['impacts'], 4, copy_ids, phase))
+            result.append(create_question({}, element, ids['impacts'],4, copy_ids, phase, None, sources, events, entities, impacts))
+    print(result)
     return result
 
 
-def get(result, attr_id, ids, topic_id, copy_ids, phase):
-    relations = coll_rel.find({'attributeId': attr_id, 'topicId': topic_id})
+def create_question(result, attr_id, ids, topic_id, copy_ids, phase, parent, sources, events, entities, impacts):
+    print("create question")
+    print(attr_id)
     result['questions'] = []
     result['children'] = []
-    # generic question get created (refinement + completion)
-    question = generate_generic_question(attr_id, topic_id, phase)
+    if topic_id == 1 and phase == 1:
+        question = generate_sources_question(attr_id, parent, sources, phase)
+    elif topic_id == 1 and phase == 2:
+        question = generate_sources_question(attr_id, parent, sources, phase)
+    elif topic_id == 2 and phase == 1:
+        question = generate_events_question(attr_id, parent, events, phase)
+    elif topic_id == 2 and phase == 2:
+        question = generate_events_question(attr_id, parent, events, phase)
+    elif topic_id == 3 and phase == 2:
+        question = generate_entities_question(attr_id, entities, phase)
+    elif topic_id == 3 and phase == 1:
+        question = generate_entities_question(attr_id, entities, phase)
+    elif topic_id == 4 and phase == 1:
+        question = generate_impacts_question(attr_id, impacts, phase)
+    elif topic_id == 4 and phase == 2:
+        question = generate_impacts_question(attr_id, impacts, phase)
     result['questions'].append(question)
+    relations = coll_rel.find({'attributeId': attr_id, 'topicId': topic_id})
     copy_ids.add(attr_id)
-    # completion
-    if phase == 1:
-        for r in relations:
-            # load manually created questions from db
+    for r in relations:
+        if phase == 1:
             temp = coll_que.find({'questionId': r['questionId']})
+        else:
+            temp = coll_counter_que.find({'questionId': r['questionId']})
+            # if counter questions exist
+        if len(list(temp)) > 0:
             for t in temp:
-                q = generate_specific_question(t, r['attributeId'], topic_id)
+                #q = generate_specific_question(t, r['attributeId'], topic_id)
+                q = {'text': t['text'], 'answer': 0, 'questionId': t['questionId'], 'attrId': r['attributeId'],
+                            'topicId': topic_id}
+                if r['attributeId'][:-2]:
+                    question['parentId'] = r['attributeId'][:-2]
                 result['questions'].append(q)
-        # load questions following attribute hierarchy
+    if topic_id == 1 or topic_id == 2:
         for element in ids:
             if element[:-2] == attr_id:
                 copy_ids.add(element)
-                result['children'].append(get({}, element, ids, topic_id, copy_ids, phase))
-    # refinement
-    else:
-        for r in relations:
-            # find existing counter questions for relation
-            temp = coll_counter_que.find({'questionId': r['questionId']})
-            # if counter questions exist
-            if len(list(temp)) > 0:
-                for t in temp:
-                    q = generate_specific_question(t, r['attributeId'], topic_id)
-                    result['questions'].append(q)
-            # if counter question does not exist
-            #else:
-                # find non-counter question
-                #q_positive = coll_que.find({'questionId': r['questionId']})
-                # generate counter question for non-counter questions
-                #for q in q_positive:
-                    #q = generate_manual_counter_question(q, r['attributeId'], topic_id)
-                    #result['questions'].append(q)
+                print("found child")
+                result['children'].append(create_question({}, element, ids, topic_id, copy_ids, phase, attr_id, sources, events, entities, impacts))
     if len(result['children']) == 0:
         del result['children']
     return result
-
-
-def generate_generic_question(attr_id, topic_id, phase):
-    if topic_id == 1:
-        sources = get_sources()
-        attribute = get_attribute_name(attr_id, sources)
-    if topic_id == 2:
-        events = get_events()
-        attribute = get_attribute_name(attr_id, events)
-    if topic_id == 3:
-        entities = get_entities()
-        attribute = get_attribute_name(attr_id, entities)
-    if topic_id == 4:
-        impacts = get_impacts()
-        attribute = get_attribute_name(attr_id, impacts)
-    if phase == 1:
-        question = {'text': generate_question(attribute), 'answer': 0, 'questionId': 0, 'attrId': attr_id,
-                    'topicId': topic_id}
-    else:
-        question = {'text': generate_counter_question(attribute), 'answer': 0, 'questionId': 0, 'attrId': attr_id,
-                    'topicId': topic_id}
-    if attr_id[:-2]:
-        question['parentId'] = attr_id[:-2]
-    return question
-
-
-def generate_specific_question(q, attribute_id, topic_id):
-    question = {'text': q['text'], 'answer': 0, 'questionId': q['questionId'], 'attrId': attribute_id,
-                'topicId': topic_id}
-    if attribute_id[:-2]:
-        question['parentId'] = attribute_id[:-2]
-    return question
-
-
-def generate_manual_counter_question(q, attribute_id, topic_id):
-    question = {'text': generate_mc_question(q['text']), 'answer': 0, 'questionId': q['questionId'],
-                'attrId': attribute_id,
-                'topicId': topic_id}
-    if attribute_id[:-2]:
-        question['parentId'] = attribute_id[:-2]
-    return question
-
 
 # handle response from frontend after user answered questions
 
 
 @app.route('/answer', methods=['POST'])
 def post_answer():
+    print('postanswer')
     body = request.get_json()
     nui = get_norm_user_incident(body['id'])
-    ui = get_user_incident(body['id'])
     copy_nui = get_norm_user_incident(body['id'])
     sources = get_sources()
     events = get_events()
@@ -363,7 +347,6 @@ def post_answer():
     ev = generate_id_list(json.loads(events)[0], [])
     en = generate_id_list(json.loads(entities)[0], [])
     im = generate_id_list(json.loads(impacts)[0], [])
-
     u = {'title': nui["title"], 'refId': nui["refId"],
          'normSources': update_norm_user_incident(nui['normSources'], s, body['answers'],
                                                   body['phase'], 1),
@@ -373,11 +356,10 @@ def post_answer():
                                                    body['phase'], 3),
          'normImpacts': update_norm_user_incident(nui['normImpacts'], im, body['answers'],
                                                   body['phase'], 4)}
+    print(copy_nui)
+    print(u)
     if body['phase'] == 2:
-        user_incident = get_user_incident(u['refId'])
-        rev_incident = reverse_norm_incident(u, sources, events, entities, impacts, user_incident)
-        coll_ui.delete_one({'myId': u['refId']})
-        coll_ui.insert_one(rev_incident)
+        finish_process(u,ref_norm_incidents, sources, events, entities, impacts)
         return {'id': u['refId'], 'questions': [], 'phase': 2}
     if body['phase'] == 1:
         coll_nui.delete_one({'refId': u['refId']})
@@ -388,37 +370,56 @@ def post_answer():
 
 
 def execute_completion(user_incident, sources, events, entities, impacts, norm_user_incident, norm_ref_incidents):
-    question_ids = calculate_cosine(norm_user_incident, norm_ref_incidents, sources, events, entities, impacts, 1, None)
-    questions = get_questions(question_ids, 1)
-    if len(question_ids) == 0:
-        question_ids = calculate_cosine(norm_user_incident, norm_ref_incidents, sources, events, entities, impacts, 2,
-                                        norm_user_incident)
-        if len(question_ids) == 0:
-            return {'id': norm_user_incident['refId'], 'questions': [], 'phase': 2}
-        else:
-            questions = get_questions(question_ids, 2)
-            question_response = {'id': norm_user_incident['refId'], 'questions': questions, 'phase': 2}
-            return question_response
+    print("execute completion")
+    print(user_incident)
+    response = calculate_cosine(norm_user_incident, norm_ref_incidents, sources, events, entities, impacts, 1, None)
+    if 'refId' in response:
+        user_incident['referenceIncident'] = response['refId']
+        print(user_incident)
+        coll_ui.insert_one(user_incident)
+        return {'id': norm_user_incident['refId'], 'questions': [], 'phase': 2}
     else:
-        question_response = {'id': user_incident['myId'], 'questions': questions, 'phase': 1}
-    return question_response
+        coll_ui.insert_one(user_incident)
+        if len(response['sources']) == 0 and len(response['events']) == 0 and len(response['entities']) == 0 and len(response['impacts']) == 0 :
+            question_ids = calculate_cosine(norm_user_incident, norm_ref_incidents, sources, events, entities, impacts, 2,
+                                            norm_user_incident)
+            if 'refId' in question_ids:
+                return {'id': norm_user_incident['refId'], 'questions': [], 'phase': 2}
+            else:
+                if len(question_ids) == 0:
+                    return {'id': norm_user_incident['refId'], 'questions': [], 'phase': 2}
+                else:
+                    question_response = {'id': norm_user_incident['refId'], 'questions': get_questions(question_ids, 2), 'phase': 2}
+                    return question_response
+        else:
+            question_response = {'id': user_incident['myId'], 'questions': get_questions(response, 1), 'phase': 1}
+            return question_response
 
 # refinement
 
 
 def execute_refinement(u, copy_nui, ref_norm_incidents, sources, events, entities, impacts, s, ev, en, im, body):
+    print("execute refinement")
     temp = {'title': copy_nui["title"], 'refId': copy_nui["refId"],
             'normSources': create_temp_incident(copy_nui['normSources'], s, body['answers'], 1),
             'normEvents': create_temp_incident(copy_nui['normEvents'], ev, body['answers'], 2),
             'normEntities': create_temp_incident(copy_nui['normEntities'], en, body['answers'], 3),
             'normImpacts': create_temp_incident(copy_nui['normImpacts'], im, body['answers'], 4)}
-    question_ids = calculate_cosine(u, ref_norm_incidents, sources, events, entities, impacts, 2, temp)
-    if len(question_ids) == 0:
-        return {'id': u['refId'], 'questions': [], 'phase': 2}
+    print(temp)
+    response = calculate_cosine(u, ref_norm_incidents, sources, events, entities, impacts, 2, temp)
+    # if similar referenceincident is found
+    if 'refId' in response:
+        print(response)
+        incident = reverse_norm_incident(u, sources, events, entities, impacts, coll_ui.find_one({'myId': u["refId"]}))
+        incident['referenceIncident'] = response['refId']
+        coll_ui.delete_one({'myId' : u['refId']})
+        coll_ui.insert_one(incident)
+        return {'id': copy_nui['refId'], 'questions': [], 'phase': 2}
     else:
-        questions = get_questions(question_ids, 2)
-        question_response = {'id': u['refId'], 'questions': questions, 'phase': 2}
-        return question_response
+        if len(response) == 0:
+            return {'id': u['refId'], 'questions': [], 'phase': 2}
+        else:
+            return {'id': u['refId'], 'questions': get_questions(response, 2), 'phase': 2}
 
 
 def update_norm_user_incident(vector, attr_list, answers, phase, topic_id):
@@ -426,8 +427,6 @@ def update_norm_user_incident(vector, attr_list, answers, phase, topic_id):
         if answer['topicId'] == topic_id:
             if phase == 1:
                 vector[attr_list.index(answer['attributeId'])] = answer['value']
-                if answer['value'] > 0:
-                    check_for_lower_granularity(attr_list, vector, answer['attributeId'])
             else:
                 vector[attr_list.index(answer['attributeId'])] = abs(answer['value'] - 1)
     return vector
@@ -437,7 +436,6 @@ def create_temp_incident(vector, attr_list, answers, topic_id):
     for answer in answers:
         if answer['topicId'] == topic_id:
             vector[attr_list.index(answer['attributeId'])] = 0
-            check_for_lower_granularity(attr_list, vector, answer['attributeId'])
     return vector
 
 
@@ -447,6 +445,19 @@ def check_for_lower_granularity(list_source, nui_attrs, attr_Id):
         check_for_lower_granularity(list_source, nui_attrs, attr_Id[:-2])
     else:
         return nui_attrs
+
+
+def finish_process(u, ref_norm_incidents, sources, events, entities, impacts):
+    print("finish")
+    print(u)
+    incident = reverse_norm_incident(u, sources, events, entities, impacts, coll_ui.find_one({'myId': u["refId"]}))
+    response = calculate_cosine(u, ref_norm_incidents, sources, events, entities, impacts, 3, None)
+    if response is not None:
+        print(response)
+        incident['referenceIncident'] = response['refId']
+    coll_ui.delete_one({'myId': u['refId']})
+    coll_ui.insert_one(incident)
+    print(incident)
 
 
 app.run(debug=True)
