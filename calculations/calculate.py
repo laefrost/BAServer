@@ -7,7 +7,6 @@ from bson.json_util import dumps
 
 
 def calculate_cosine(norm_user_incident, ref_incidents, sources, events, entities, impacts, step, temp):
-    print("calculate cosine ")
     cosine_list = []
     list_ref_incidents = []
     norm_ref_incidents = json.loads(ref_incidents)
@@ -18,29 +17,24 @@ def calculate_cosine(norm_user_incident, ref_incidents, sources, events, entitie
             "normImpacts"]
         result = 1 - spatial.distance.cosine(joined_user_vector, joined_ref_vector)
         cosine_list.append(result)
-    print(cosine_list)
     for i in range(2):
         index, value = max(enumerate(cosine_list), key=itemgetter(1))
         if value == 1:
-            print("found ident incident")
             return norm_ref_incidents[index]
         list_ref_incidents.append(norm_ref_incidents[index])
         cosine_list[index] = -1
         i = i + 1
-    print(list_ref_incidents)
     if step == 2:
         response = create_response(get_missing_attributes_refinement(temp, list_ref_incidents, "normSources", sources),
                                    get_missing_attributes_refinement(temp, list_ref_incidents, "normEvents", events),
                                    get_missing_attributes_refinement(temp, list_ref_incidents, "normEntities", entities),
                                    get_missing_attributes_refinement(temp, list_ref_incidents, "normImpacts", impacts))
-        print(response)
         return response
     elif step == 1:
         response = create_response(get_missing_attributes_completion(norm_user_incident, list_ref_incidents, "normSources", sources),
                                    get_missing_attributes_completion(norm_user_incident, list_ref_incidents, "normEvents", events),
                                    get_missing_attributes_completion(norm_user_incident, list_ref_incidents, "normEntities", entities),
                                    get_missing_attributes_completion(norm_user_incident, list_ref_incidents, "normImpacts", impacts))
-        print(response)
         return response
     elif step == 3:
         return None
@@ -64,7 +58,6 @@ def get_attribute_ids(index_list, category):
 
 # get ids and create hierarchy
 def get_missing_attributes_completion(incident_one, incidents, key, topic):
-    print("get attributes completion")
     result = []
     for incident in incidents:
         indexes_one = np.where(np.array(incident[key]) != 0)[0]
@@ -77,13 +70,11 @@ def get_missing_attributes_completion(incident_one, incidents, key, topic):
                 result.append(element)
     result = list(dict.fromkeys(result))
     result.sort()
-    print(result)
     return result
 
 
 def get_missing_attributes_refinement(incident_one, incidents, key, topic):
     result = []
-    print("get missing attributes refinement")
     for incident in incidents:
         indexes_one = np.where(np.array(incident_one[key]) != 0)[0]
         indexes_two = np.where(np.array(incident[key]) != 0)[0]
@@ -94,7 +85,6 @@ def get_missing_attributes_refinement(incident_one, incidents, key, topic):
                 result.append(element)
     result = list(dict.fromkeys(result))
     result.sort()
-    print(result)
     return result
 
 

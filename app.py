@@ -39,7 +39,6 @@ def get_incidents():
 
 @app.route('/incidents', methods=['POST'])
 def post_incident():
-    print("post incident")
     body = request.get_json()
     incident = body
     idList = list(coll_i.find())
@@ -49,7 +48,6 @@ def post_incident():
         incident['myId'] = coll_i.find_one(sort=[('myId', pymongo.DESCENDING)])['myId'] + 1;
     incident['transmittedBy'] = 'admin'
     coll_i.insert_one(incident)
-    print(incident)
     post_norm_ref_incident(incident)
     return dumps(incident)
 
@@ -120,7 +118,6 @@ def get_user_incident(incident_id):
 
 @app.route('/user_incidents', methods=['POST'])
 def post_user_incident():
-    print("post user incident")
     body = request.get_json()
     user_incident = body
     idList = list(coll_ui.find())
@@ -128,12 +125,12 @@ def post_user_incident():
         user_incident['myId'] = 0
     else:
         user_incident['myId'] = coll_ui.find_one(sort=[('myId', pymongo.DESCENDING)])['myId'] + 1
+    user_incident_copy = user_incident
     sources = get_sources()
     events = get_events()
     entities = get_entities()
     impacts = get_impacts()
-    print(user_incident)
-    norm_user_incident = post_norm_user_incident(user_incident, sources, events, entities, impacts)
+    norm_user_incident = post_norm_user_incident(user_incident_copy, sources, events, entities, impacts)
     norm_ref_incidents = get_norm_ref_incidents()
     question_response = execute_completion(user_incident, sources, events, entities, impacts, norm_user_incident, norm_ref_incidents)
     return question_response
@@ -207,13 +204,11 @@ def post_question():
     else:
         q['questionId'] = coll_que.find_one(sort=[('questionId', pymongo.DESCENDING)])['questionId'] + 1
     q['text'] = body['text']
-    post_relation(q['questionId'], body)
-    if 'counterText' in body:
-        if len(body['counterText']) > 0:
-            q_counter = q
-            q_counter['text'] = body['counterText']
-            coll_counter_que.insert_one(q_counter)
     coll_que.insert_one(q)
+    post_relation(q['questionId'], body)
+    q_counter = q
+    q_counter['text'] = body['counterText']
+    coll_counter_que.insert_one(q_counter)
     return dumps(q)
 
 
@@ -246,7 +241,6 @@ def post_relation(question_id, temp):
 
 # get all questions that answer attribute
 def get_questions(ids, phase):
-    print("get questions")
     sources = get_sources()
     events = get_events()
     entities = get_entities()
@@ -255,7 +249,6 @@ def get_questions(ids, phase):
     copy_ids = set()
     for element in ids['sources']:
         if element not in copy_ids:
-            #if element not in copy_ids:
             if element[:-2]:
                 parent_id = element[:-2]
             else:
@@ -277,13 +270,10 @@ def get_questions(ids, phase):
     for element in ids['impacts']:
         if element not in copy_ids:
             result.append(create_question({}, element, ids['impacts'],4, copy_ids, phase, None, sources, events, entities, impacts))
-    print(result)
     return result
 
 
 def create_question(result, attr_id, ids, topic_id, copy_ids, phase, parent, sources, events, entities, impacts):
-    print("create question")
-    print(attr_id)
     result['questions'] = []
     result['children'] = []
     if topic_id == 1 and phase == 1:
@@ -310,20 +300,16 @@ def create_question(result, attr_id, ids, topic_id, copy_ids, phase, parent, sou
             temp = coll_que.find({'questionId': r['questionId']})
         else:
             temp = coll_counter_que.find({'questionId': r['questionId']})
-            # if counter questions exist
-        if len(list(temp)) > 0:
-            for t in temp:
-                #q = generate_specific_question(t, r['attributeId'], topic_id)
-                q = {'text': t['text'], 'answer': 0, 'questionId': t['questionId'], 'attrId': r['attributeId'],
+        for t in temp:
+            q = {'text': t['text'], 'answer': 0, 'questionId': t['questionId'], 'attrId': r['attributeId'],
                             'topicId': topic_id}
-                if r['attributeId'][:-2]:
-                    question['parentId'] = r['attributeId'][:-2]
-                result['questions'].append(q)
+            if r['attributeId'][:-2]:
+                q['parentId'] = r['attributeId'][:-2]
+            result['questions'].append(q)
     if topic_id == 1 or topic_id == 2:
         for element in ids:
             if element[:-2] == attr_id:
                 copy_ids.add(element)
-                print("found child")
                 result['children'].append(create_question({}, element, ids, topic_id, copy_ids, phase, attr_id, sources, events, entities, impacts))
     if len(result['children']) == 0:
         del result['children']
@@ -334,7 +320,6 @@ def create_question(result, attr_id, ids, topic_id, copy_ids, phase, parent, sou
 
 @app.route('/answer', methods=['POST'])
 def post_answer():
-    print('postanswer')
     body = request.get_json()
     nui = get_norm_user_incident(body['id'])
     copy_nui = get_norm_user_incident(body['id'])
@@ -356,8 +341,6 @@ def post_answer():
                                                    body['phase'], 3),
          'normImpacts': update_norm_user_incident(nui['normImpacts'], im, body['answers'],
                                                   body['phase'], 4)}
-    print(copy_nui)
-    print(u)
     if body['phase'] == 2:
         finish_process(u,ref_norm_incidents, sources, events, entities, impacts)
         return {'id': u['refId'], 'questions': [], 'phase': 2}
@@ -370,12 +353,9 @@ def post_answer():
 
 
 def execute_completion(user_incident, sources, events, entities, impacts, norm_user_incident, norm_ref_incidents):
-    print("execute completion")
-    print(user_incident)
     response = calculate_cosine(norm_user_incident, norm_ref_incidents, sources, events, entities, impacts, 1, None)
     if 'refId' in response:
         user_incident['referenceIncident'] = response['refId']
-        print(user_incident)
         coll_ui.insert_one(user_incident)
         return {'id': norm_user_incident['refId'], 'questions': [], 'phase': 2}
     else:
@@ -399,17 +379,13 @@ def execute_completion(user_incident, sources, events, entities, impacts, norm_u
 
 
 def execute_refinement(u, copy_nui, ref_norm_incidents, sources, events, entities, impacts, s, ev, en, im, body):
-    print("execute refinement")
     temp = {'title': copy_nui["title"], 'refId': copy_nui["refId"],
             'normSources': create_temp_incident(copy_nui['normSources'], s, body['answers'], 1),
             'normEvents': create_temp_incident(copy_nui['normEvents'], ev, body['answers'], 2),
             'normEntities': create_temp_incident(copy_nui['normEntities'], en, body['answers'], 3),
             'normImpacts': create_temp_incident(copy_nui['normImpacts'], im, body['answers'], 4)}
-    print(temp)
     response = calculate_cosine(u, ref_norm_incidents, sources, events, entities, impacts, 2, temp)
-    # if similar referenceincident is found
     if 'refId' in response:
-        print(response)
         incident = reverse_norm_incident(u, sources, events, entities, impacts, coll_ui.find_one({'myId': u["refId"]}))
         incident['referenceIncident'] = response['refId']
         coll_ui.delete_one({'myId' : u['refId']})
@@ -436,6 +412,10 @@ def create_temp_incident(vector, attr_list, answers, topic_id):
     for answer in answers:
         if answer['topicId'] == topic_id:
             vector[attr_list.index(answer['attributeId'])] = 0
+            id = answer['attributeId']
+            while id[:-2]:
+                vector[attr_list.index(id[:-2])] = 0
+                id = id[:-2]
     return vector
 
 
@@ -448,16 +428,12 @@ def check_for_lower_granularity(list_source, nui_attrs, attr_Id):
 
 
 def finish_process(u, ref_norm_incidents, sources, events, entities, impacts):
-    print("finish")
-    print(u)
     incident = reverse_norm_incident(u, sources, events, entities, impacts, coll_ui.find_one({'myId': u["refId"]}))
     response = calculate_cosine(u, ref_norm_incidents, sources, events, entities, impacts, 3, None)
     if response is not None:
-        print(response)
         incident['referenceIncident'] = response['refId']
     coll_ui.delete_one({'myId': u['refId']})
     coll_ui.insert_one(incident)
-    print(incident)
 
 
 app.run(debug=True)

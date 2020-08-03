@@ -116,11 +116,8 @@ def generate_events_question(attribute, parent_attr, events, phase):
     if parent_attr is not None:
         parent_attr = get_attribute_name(parent_attr, events)
         parent_attr = analyze_word_type(parent_attr)
-    print(attr)
-    print(parent_attr)
     parser = ChartParser(generate_events_grammar(attr, parent_attr, phase))
     gr = parser.grammar()
-    print(' '.join(produce(gr, gr.start())))
     question = {'text': ' '.join(produce(gr, gr.start())), 'answer': 0, 'questionId': 0, 'attrId': id,
                 'topicId': 2}
     return question
